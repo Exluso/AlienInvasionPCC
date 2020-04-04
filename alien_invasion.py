@@ -1,9 +1,11 @@
 import sys
 import pygame
+from time import sleep
 from settings import Settings
 from ship import Ship
 from bullet import Bullet
 from alien import Alien
+from game_stats import GameStats
 
 
 class AlienInvasion:
@@ -15,6 +17,7 @@ class AlienInvasion:
         self.screen = pygame.display.set_mode(
             (self.settings.screen_width, self.settings.screen_height))
         pygame.display.set_caption("Alien Invasion")
+        self.stats = GameStats(self)
         self.ship = Ship(self)
         self.bullets = pygame.sprite.Group()
         self.aliens = pygame.sprite.Group()
@@ -26,8 +29,10 @@ class AlienInvasion:
         while True:
             # watch for keyboard and mouse events
             self._check_events()
-            self.ship.update()
-            self._update_bullets()
+            if self.stats.game_active:
+                self.ship.update()
+                self._update_bullets()
+                self._update_aliens()
             self._update_screen()
 
     def _create_fleet(self):
@@ -56,6 +61,19 @@ class AlienInvasion:
         alien.y = alien_height + (row * (2 * alien_height))
         alien.rect.x, alien.rect.y = alien.x, alien.y
         self.aliens.add(alien)
+
+    def _check_fleet_edges(self):
+        """Reacts appropiately when any alien in the fleet reaches the edge"""
+        for alien in self.aliens.sprites():
+            if alien.check_edges():
+                self._change_fleet_direction()
+                break
+
+    def _change_fleet_direction(self):
+        """Drop the fleet down then make it moves in the opposite direction."""
+        for alien in self.aliens.sprites():
+            alien.rect.y += alien.settings.alien_drop_speed
+        self.settings.fleet_direction *= -1
 
     def _check_events(self):
         """Respond to keypresses and mouse events."""
@@ -100,7 +118,59 @@ class AlienInvasion:
         for bullet in self.bullets.copy():
             if bullet.rect.bottom <= 0:
                 self.bullets.remove(bullet)
-        # print("Active bullets: " + str(len(self.bullets)))
+        self._check_alien_bullet_collision()
+
+    def _check_alien_bullet_collision(self):
+        # Respond to alien bullet collision
+        # Remove any bullet and alien that have collided
+        collisions = pygame.sprite.groupcollide(self.bullets, self.aliens,
+                                                True, True)
+        if not self.aliens:
+        # destroy bullet and create new fleet
+            self.bullets.empty()
+            self._create_fleet()
+
+    def _update_aliens(self):
+        """Check if the fleet is at an edge,
+        then updates the position of all aliens in the fleet."""
+        self._check_fleet_edges()
+        self.aliens.update()
+        self._check_alien_ship_collision()
+        # look for alien reaching the bottom of the screen
+        self._check_aliens_bottom()
+
+    def _check_alien_ship_collision(self):
+        """Respond to alien ship collision"""
+        for alien in self.aliens.sprites():
+            if pygame.sprite.spritecollideany(self.ship, self.aliens):
+                self._ship_hit()
+
+    def _check_aliens_bottom(self):
+        """Che if any alien has reached the bottom of the screen."""
+        screen_rect = self.screen.get_rect()
+        for alien in self.aliens.sprites():
+            if alien.rect.bottom >= screen_rect.bottom:
+                self._ship_hit()
+                break
+
+    def _ship_hit(self):
+        """Respond to ship being hit by an alien"""
+        if self.stats.ship_left > 0:
+            # Decrement ships left
+            self.stats.ship_left -= 1
+
+            #Get rid of any left alien or bullet
+            self.aliens.empty()
+            self.bullets.empty()
+
+            # create a new fleet and center the ship
+            self._create_fleet()
+            self.ship.center_ship()
+
+            # Pause
+            sleep(1)
+        else:
+            self.stats.game_active = False
 
     def _update_screen(self):
         """Update images on the screen and flip to the new screen."""
